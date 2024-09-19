@@ -57,6 +57,7 @@ t_min = 0.0  # 365.25/12.
 mask_ties = True
 ignore_tokens = [0]
 data_fraction = 1.0
+use_kvcache = False
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k, v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
@@ -160,7 +161,7 @@ def estimate_loss():
             X, A, Y, B = get_batch(ix, val_data, val_p2i, block_size=block_size,
                                    device=device, select='center')
             with ctx:
-                logits, loss, _ = model(X, A, Y, B)
+                logits, loss, _, _ = model(X, A, Y, B)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
@@ -235,7 +236,7 @@ while True:
     # and using the GradScaler if data type is float16
     for micro_step in range(gradient_accumulation_steps):
         with ctx:
-            logits, loss, att = model(X, A, Y, B)
+            logits, loss, att, kvcache = model(X, A, Y, B)
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         ix = torch.randint(len(train_p2i), (batch_size,))
         # print(ix)

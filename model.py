@@ -57,19 +57,36 @@ class CausalSelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
-    def forward(self, x, attn_mask):
+    def forward(self, x, attn_mask, kvcache=None):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         q, k ,v  = self.c_attn(x).split(self.n_embd, dim=2)
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+
+        if kvcache:
+            prev_k, prev_v = kvcache
+            k = torch.cat([prev_k, k], dim=1)  # concatenate previous and current key
+            v = torch.cat([prev_v, v], dim=1)  # concatenate previous and current value
+
+        new_kvcache = [k, v]  # update the key-value cache with the concatenated key and value
+        curr_T = k.shape[1]  # get the current length of the sequence
+
+        k = k.view(B, curr_T, self.n_head, C // self.n_head).transpose(1, 2)  # reshape and transpose the key tensor
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # reshape and transpose the query tensor
+        v = v.view(B, curr_T, self.n_head, C // self.n_head).transpose(1, 2)  # reshape and transpose the value tensor
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
             y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout, is_causal=True)
+        elif kvcache:
+            # manual implementation of attention with kv cache -> so far the same as for attention without kv cache
+            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+            #att = att.masked_fill(self.bias[:,:,:T,:curr_T] == 0, float('-inf'))
+            att = att.masked_fill(attn_mask == 0, float('-inf'))
+            att = F.softmax(att, dim=-1)
+            att = self.attn_dropout(att)
+            y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
@@ -78,11 +95,12 @@ class CausalSelfAttention(nn.Module):
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
-        return y, att
+        return y, att, new_kvcache
 
 class MLP(nn.Module):
 
@@ -108,11 +126,11 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x, attn_mask):
-        y, att = self.attn(self.ln_1(x), attn_mask) 
+    def forward(self, x, attn_mask, kvcache=None):
+        y, att, cache_ele = self.attn(self.ln_1(x), attn_mask, kvcache) 
         x = x + y
         x = x + self.mlp(self.ln_2(x))
-        return x, att
+        return x, att, cache_ele
 
 class AgeEncoding(nn.Module):
 
@@ -149,6 +167,7 @@ class DelphiConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     mask_ties: bool = False
     ignore_tokens: list = field(default_factory=lambda: [0])
+    use_kvcache: bool = False
 
 class Delphi(nn.Module):
 
@@ -206,7 +225,7 @@ class Delphi(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, age, targets=None, targets_age=None):
+    def forward(self, idx, age, targets=None, targets_age=None, kvcache=None):
         device = idx.device
         b, t = idx.size()
         #assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -229,12 +248,20 @@ class Delphi(nn.Module):
         attn_mask *= torch.tril(torch.ones(idx.size(1),idx.size(1), device=device))[None,None,:,:] > 0 #self.transformer.h[0].attn.bias[:,:,:idx.size(1),:idx.size(1)] > 0
 
         
-        att = []
-        for block in self.transformer.h:
-            x, a = block(x, attn_mask)
-            att.append(a)
-        x = self.transformer.ln_f(x)
-        att = torch.stack(att)
+        if not kvcache:
+            kvcache = [None] * self.config.n_layer
+        else:
+            x = x[:, [-1], :]  # Take only the last token for the next iteration
+        
+
+        new_kvcache = []  # List to store the updated kvcache for each layer
+        att = []  # List to store the attention weights for each layer
+        for block, kvcache_block in zip(self.transformer.h, kvcache):
+            x, a, cache_ele = block(x, attn_mask, kvcache=kvcache_block)  # Forward pass through the block
+            att.append(a)  # Append the attention weights to the list
+            new_kvcache.append(cache_ele)  # Append the updated kvcache to the list
+        x = self.transformer.ln_f(x)  # Apply layer normalization
+        att = torch.stack(att)  # Stack the attention weights along a new dimension
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
@@ -272,7 +299,7 @@ class Delphi(nn.Module):
             logits = self.lm_head(x[:, :, :]) # note: using list [-1] to preserve the time dim
             loss = None
 
-        return logits, loss, att
+        return logits, loss, att, new_kvcache
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
@@ -371,13 +398,15 @@ class Delphi(nn.Module):
         """
         if max_new_tokens == -1:
             max_new_tokens = 10000
+
+        kvcache = None
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx #if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             age_cond = age #if age.size(1) <= self.config.block_size else age[:, -self.config.block_size:]
 
             # forward the model to get the logits for the index in the sequence
-            logits, _, _ = self(idx_cond, age_cond)
+            logits, _, _ , kvcache = self(idx_cond, age_cond, kvcache=kvcache)
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             logits[:,self.config.ignore_tokens] = -float('Inf')
