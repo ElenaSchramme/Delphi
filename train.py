@@ -19,7 +19,7 @@ eval_only = False  # if True, script exits right after the first eval
 always_save_checkpoint = True  # if True, always save a checkpoint after each eval
 init_from = 'scratch'  # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
-wandb_log = False  # disabled by default
+wandb_log = True  # disabled by default
 wandb_project = 'delphi'
 wandb_run_name = 'run' + str(time.time())
 # data
@@ -57,7 +57,7 @@ t_min = 0.0  # 365.25/12.
 mask_ties = True
 ignore_tokens = [0]
 data_fraction = 1.0
-use_kvcache = False
+use_kvcache = True
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k, v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]

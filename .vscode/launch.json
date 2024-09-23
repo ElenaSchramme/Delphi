@@ -1,0 +1,17 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Train Delphi",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "args": [
+                "config/train_delphi_demo.py",
+                "--out_dir=Delphi-2M"
+            ],
+            "console": "integratedTerminal",
+            "python": "/Users/elenaschramme/anaconda3/envs/delphi/bin/python" // Pfad zum Python-Interpreter des Conda-Environment
+        }
+    ]
+}

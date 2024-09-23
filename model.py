@@ -167,7 +167,7 @@ class DelphiConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     mask_ties: bool = False
     ignore_tokens: list = field(default_factory=lambda: [0])
-    use_kvcache: bool = False
+    use_kvcache: bool = True
 
 class Delphi(nn.Module):
 
