@@ -57,7 +57,7 @@ t_min = 0.0  # 365.25/12.
 mask_ties = True
 ignore_tokens = [0]
 data_fraction = 1.0
-use_kvcache = False
+use_kvcache = True
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k, v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]

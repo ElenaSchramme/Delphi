@@ -71,9 +71,9 @@ class CausalSelfAttention(nn.Module):
         new_kvcache = [k, v]  # update the key-value cache with the concatenated key and value
         curr_T = k.shape[1]  # get the current length of the sequence
 
-        k = k.view(B, curr_T, self.n_head, C // self.n_head).transpose(1, 2)  # reshape and transpose the key tensor
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # reshape and transpose the query tensor
-        v = v.view(B, curr_T, self.n_head, C // self.n_head).transpose(1, 2)  # reshape and transpose the value tensor
+        k = k.view(B, curr_T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, curr_T, hs)
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
+        v = v.view(B, curr_T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, curr_T, hs)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
@@ -167,7 +167,7 @@ class DelphiConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     mask_ties: bool = False
     ignore_tokens: list = field(default_factory=lambda: [0])
-    use_kvcache: bool = False
+    use_kvcache: bool = True
 
 class Delphi(nn.Module):
 
@@ -250,9 +250,8 @@ class Delphi(nn.Module):
         
         if not kvcache:
             kvcache = [None] * self.config.n_layer
-        else:
-            x = x[:, [-1], :]  # Take only the last token for the next iteration
-        
+        else: 
+            x = x[:, -1:, :]  # only take the last token for the forward pass
 
         new_kvcache = []  # List to store the updated kvcache for each layer
         att = []  # List to store the attention weights for each layer
