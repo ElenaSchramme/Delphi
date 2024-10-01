@@ -83,7 +83,7 @@ class CausalSelfAttention(nn.Module):
             # manual implementation of attention with kv cache -> so far the same as for attention without kv cache
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
             #att = att.masked_fill(self.bias[:,:,:T,:curr_T] == 0, float('-inf'))
-            att = att.masked_fill(attn_mask == 0, float('-inf'))
+            att = att.masked_fill(attn_mask.to(att.dtype) == 0, float('-inf'))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
@@ -96,7 +96,7 @@ class CausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         
-        y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
+        y = y.transpose(1, 2).contiguous().view(B, curr_T, C) # re-assemble all head outputs side by side
 
         # output projection
         y = self.resid_dropout(self.c_proj(y))
@@ -256,6 +256,8 @@ class Delphi(nn.Module):
         new_kvcache = []  # List to store the updated kvcache for each layer
         att = []  # List to store the attention weights for each layer
         for block, kvcache_block in zip(self.transformer.h, kvcache):
+            if not kvcache[0] == None:
+                x = x[:, -1:, :]  # only take the last token for the forward pass in all layers
             x, a, cache_ele = block(x, attn_mask, kvcache=kvcache_block)  # Forward pass through the block
             att.append(a)  # Append the attention weights to the list
             new_kvcache.append(cache_ele)  # Append the updated kvcache to the list
@@ -439,7 +441,7 @@ class Delphi(nn.Module):
                 break
         
         pad = (torch.cumsum(torch.cumsum(idx == self.config.vocab_size -1,1).int(),1) > 1) + (age > max_age)
-        logits, _, _ = self(idx, age)
+        logits, _, _, kvcache = self(idx, age)
         idx[pad] = 0
         age[pad] = float('NaN')
         if no_repeat:
@@ -447,4 +449,4 @@ class Delphi(nn.Module):
             fill[fill == 1] = 0
             logits = torch.stack([logits[:,j].scatter_(1, fill[:,:j+1], float("NaN")) for j in range(fill.shape[1])]).transpose(0,1)
 
-        return idx, age, logits
+        return idx, age, logits, kvcache

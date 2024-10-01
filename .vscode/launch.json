@@ -5,7 +5,7 @@
             "name": "Python: Train Delphi",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/train.py",
+            "program": "${workspaceFolder}/sampling.py",
             "args": [
                 "config/train_delphi_demo.py",
                 "--out_dir=Delphi-2M"
