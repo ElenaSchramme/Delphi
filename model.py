@@ -391,7 +391,7 @@ class Delphi(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, age, max_new_tokens=100, max_age = 85*365.25, temperature=1.0, top_k=None, no_repeat=True):
+    def generate(self, idx, age, max_new_tokens=100, max_age = 85*365.25, temperature=1.0, top_k=None, no_repeat=True, use_kvcache=False):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -408,6 +408,8 @@ class Delphi(nn.Module):
 
             # forward the model to get the logits for the index in the sequence
             logits, _, _ , kvcache = self(idx_cond, age_cond, kvcache=kvcache)
+            if not use_kvcache:
+                kvcache = None
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             logits[:,self.config.ignore_tokens] = -float('Inf')

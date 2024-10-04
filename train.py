@@ -57,7 +57,7 @@ t_min = 0.0  # 365.25/12.
 mask_ties = True
 ignore_tokens = [0]
 data_fraction = 1.0
-use_kvcache = False
+use_kvcache = True
 if use_kvcache:
     kvcache = None
 
