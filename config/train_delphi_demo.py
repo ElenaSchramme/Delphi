@@ -19,8 +19,8 @@ block_size = 48
 data_fraction = 1.0
 
 n_layer = 12
-n_head = 12
-n_embd = 120
+n_head = 16#12
+n_embd = 1024#120
 dropout = 0.1
 weight_decay = 2e-1
 

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import time
 
 # @torch.jit.script # good to enable when not using torch.compile, disable when using (our default)
 def new_gelu(x):
@@ -159,8 +160,8 @@ class DelphiConfig:
     block_size: int = 1024
     vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
     n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
+    n_head: int = 16#12
+    n_embd: int = 1024#768
     dropout: float = 0.0
     token_dropout: float = 0.0
     t_min: float = 1.0
@@ -401,7 +402,10 @@ class Delphi(nn.Module):
             max_new_tokens = 10000
 
         kvcache = None
-        for _ in range(max_new_tokens):
+        times = []
+        for token_count in range(max_new_tokens):
+            if token_count % 20 == 0:
+                start_time = time.time()
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx #if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             age_cond = age #if age.size(1) <= self.config.block_size else age[:, -self.config.block_size:]
@@ -438,9 +442,15 @@ class Delphi(nn.Module):
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
             age = torch.cat((age, age_next), dim=1)
+
+            if token_count % 20 == 0:
+                end_time = time.time()
+                elapsed_time = end_time - start_time    
+                times.append(elapsed_time)
+                print(f"Generated {token_count} tokens in {elapsed_time:.2f} seconds with kvcache {use_kvcache}")
             
-            if torch.all(idx_next == self.config.vocab_size -1) or torch.all(age_next > max_age):
-                break
+            #if torch.all(idx_next == self.config.vocab_size -1) or torch.all(age_next > max_age):
+            #    break
         
         pad = (torch.cumsum(torch.cumsum(idx == self.config.vocab_size -1,1).int(),1) > 1) + (age > max_age)
         logits, _, _, kvcache = self(idx, age)
@@ -451,4 +461,4 @@ class Delphi(nn.Module):
             fill[fill == 1] = 0
             logits = torch.stack([logits[:,j].scatter_(1, fill[:,:j+1], float("NaN")) for j in range(fill.shape[1])]).transpose(0,1)
 
-        return idx, age, logits, kvcache
+        return idx, age, logits, kvcache, times 

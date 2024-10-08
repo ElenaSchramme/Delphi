@@ -15,7 +15,7 @@ dtype = 'float32'
 seed = 1337
 vocab_size = 1269
 batch_size = 128
-iterations = 20
+iterations = 1
 max_age = 85 * 365.25
 
 torch.manual_seed(seed)
@@ -60,41 +60,34 @@ def generate_synthetic_input(seq_length, batch_size, vocab_size, max_age):
     return d0, d1
 
 # Benchmarking function
-def benchmark(model, seq_length, use_kvcache, iterations):
-    token_data, age_data = generate_synthetic_input(seq_length, batch_size, vocab_size, max_age=max_age) 
+def benchmark(model, start_length, seq_length, use_kvcache, iterations):
+    token_data, age_data = generate_synthetic_input(start_length, batch_size, vocab_size, max_age=max_age) 
     times = []
     for _ in range(iterations):
         start_time = time.time()
         with torch.no_grad():
-            model.generate(token_data, age_data, max_age=max_age, no_repeat=False, use_kvcache=use_kvcache)
+            _,_,_,_,times = model.generate(token_data, age_data, max_new_tokens = seq_length, max_age=max_age, no_repeat=False, use_kvcache=use_kvcache)
         end_time = time.time()
-        times.append(end_time - start_time)
-    avg_time = sum(times) / len(times)
-    tokens_per_second = (seq_length * batch_size) / avg_time
-    return tokens_per_second, avg_time
+    return times
 
 # Define sequence lengths
-sequence_lengths = [50]#, 100, 150, 200, 250, 300]
+seq_length = 50
+start_length = 5
 
 # Run benchmarks
 results_naive = []
 results_cache = []
 
-for seq_length in sequence_lengths:
-    print(f"Benchmarking for sequence length: {seq_length}")
-    tokens_per_second_naive, avg_time_naive = benchmark(model, seq_length, use_kvcache=False, iterations=iterations)
-    tokens_per_second_cache, avg_time_cache = benchmark(model, seq_length, use_kvcache=True, iterations=iterations)
-    results_naive.append(tokens_per_second_naive)
-    results_cache.append(tokens_per_second_cache)
-    print(f"Naive: {tokens_per_second_naive:.2f} tokens/second, Cache: {tokens_per_second_cache:.2f} tokens/second")
-    print(f"Naive: {avg_time_naive:.2f} seconds, Cache: {avg_time_cache:.2f} seconds")
+print(f"Benchmarking for sequence length: {seq_length}")
+naive_times = benchmark(model, start_length, seq_length, use_kvcache=False, iterations=iterations)
+cache_times = benchmark(model, start_length, seq_length, use_kvcache=True, iterations=iterations)
 
 # Plot results
 plt.figure(figsize=(10, 6))
-plt.plot(sequence_lengths, results_naive, label='Naive (No Cache)', marker='o')
-plt.plot(sequence_lengths, results_cache, label='With Cache', marker='o')
+plt.plot([i for i in range(seq_length) if i % 20 == 0], naive_times, label='Naive (No Cache)', marker='o')
+plt.plot([i for i in range(seq_length) if i % 20 == 0], cache_times, label='With Cache', marker='o')
 plt.xlabel('Sequence Length')
-plt.ylabel('Tokens per Second')
+plt.ylabel('Time to generate the next token (seconds)')
 plt.title('Benchmarking Sampling Speed with and without KV Cache')
 plt.legend()
 plt.grid(True)

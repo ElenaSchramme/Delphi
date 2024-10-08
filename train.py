@@ -29,8 +29,8 @@ batch_size = 128  # if gradient_accumulation_steps > 1, this is the micro-batch 
 block_size = 24
 # model
 n_layer = 6
-n_head = 6
-n_embd = 96
+n_head = 16 #6
+n_embd = 1024#96
 dropout = 0.2  # for pretraining 0 is good, for finetuning try 0.1+
 bias = False  # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
@@ -57,7 +57,7 @@ t_min = 0.0  # 365.25/12.
 mask_ties = True
 ignore_tokens = [0]
 data_fraction = 1.0
-use_kvcache = True
+use_kvcache = False
 if use_kvcache:
     kvcache = None
 
