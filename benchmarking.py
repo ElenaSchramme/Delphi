@@ -15,7 +15,7 @@ dtype = 'float32'
 seed = 1337
 vocab_size = 1269
 batch_size = 128
-iterations = 1
+iterations = 2
 max_age = 85 * 365.25
 
 torch.manual_seed(seed)
@@ -33,6 +33,8 @@ model.load_state_dict(state_dict)
 
 model.eval()
 model = model.to(device)
+
+print(f"I am using a {device}")
 
 # Function to generate synthetic input with padding and end tokens
 def generate_synthetic_input(seq_length, batch_size, vocab_size, max_age):
@@ -63,29 +65,32 @@ def generate_synthetic_input(seq_length, batch_size, vocab_size, max_age):
 def benchmark(model, start_length, seq_length, use_kvcache, iterations):
     token_data, age_data = generate_synthetic_input(start_length, batch_size, vocab_size, max_age=max_age) 
     times = []
+    token_counts = []
     for _ in range(iterations):
         start_time = time.time()
         with torch.no_grad():
-            _,_,_,_,times = model.generate(token_data, age_data, max_new_tokens = seq_length, max_age=max_age, no_repeat=False, use_kvcache=use_kvcache)
+            _,_,_,_,times, token_counts = model.generate(token_data, age_data, max_new_tokens = seq_length, max_age=max_age, no_repeat=False, use_kvcache=use_kvcache)
         end_time = time.time()
-    return times
+    return times, token_counts
 
 # Define sequence lengths
-seq_length = 50
+seq_length = 41
 start_length = 5
 
 # Run benchmarks
 results_naive = []
 results_cache = []
+plt.figure(figsize=(10, 6))
 
 print(f"Benchmarking for sequence length: {seq_length}")
-naive_times = benchmark(model, start_length, seq_length, use_kvcache=False, iterations=iterations)
-cache_times = benchmark(model, start_length, seq_length, use_kvcache=True, iterations=iterations)
-
-# Plot results
-plt.figure(figsize=(10, 6))
-plt.plot([i for i in range(seq_length) if i % 20 == 0], naive_times, label='Naive (No Cache)', marker='o')
-plt.plot([i for i in range(seq_length) if i % 20 == 0], cache_times, label='With Cache', marker='o')
+for i in range(iterations):
+    naive_times, naive_token_counts = benchmark(model, start_length, seq_length, use_kvcache=False, iterations=1)
+    cache_times, cache_token_counts = benchmark(model, start_length, seq_length, use_kvcache=True, iterations=1)
+    results_naive.append((naive_token_counts, naive_times))
+    results_cache.append((cache_token_counts, cache_times))
+    plt.plot(naive_token_counts, naive_times, label=f'Naive (No Cache) Iteration {i+1}', marker='o')
+    plt.plot(cache_token_counts, cache_times, label=f'With Cache Iteration {i+1}', marker='o')
+    
 plt.xlabel('Sequence Length')
 plt.ylabel('Time to generate the next token (seconds)')
 plt.title('Benchmarking Sampling Speed with and without KV Cache')

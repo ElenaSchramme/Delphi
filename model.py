@@ -403,6 +403,7 @@ class Delphi(nn.Module):
 
         kvcache = None
         times = []
+        token_counts = []
         for token_count in range(max_new_tokens):
             if token_count % 20 == 0:
                 start_time = time.time()
@@ -447,6 +448,7 @@ class Delphi(nn.Module):
                 end_time = time.time()
                 elapsed_time = end_time - start_time    
                 times.append(elapsed_time)
+                token_counts.append(token_count)
                 print(f"Generated {token_count} tokens in {elapsed_time:.2f} seconds with kvcache {use_kvcache}")
             
             #if torch.all(idx_next == self.config.vocab_size -1) or torch.all(age_next > max_age):
@@ -461,4 +463,4 @@ class Delphi(nn.Module):
             fill[fill == 1] = 0
             logits = torch.stack([logits[:,j].scatter_(1, fill[:,:j+1], float("NaN")) for j in range(fill.shape[1])]).transpose(0,1)
 
-        return idx, age, logits, kvcache, times 
+        return idx, age, logits, kvcache, times, token_counts 
